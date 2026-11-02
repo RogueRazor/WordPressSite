@@ -72,7 +72,7 @@ class Plugin {
     }
 
     /**
-     * Activation: nothing stored yet beyond defaults.
+     * Activation: store defaults if nothing saved yet.
      */
     public function activate() {
         if ( false === get_option( Settings::OPTION ) ) {
@@ -81,13 +81,12 @@ class Plugin {
     }
 
     /**
-     * Deactivation: clear bulk state and caches, keep settings.
+     * Deactivation: clear bulk state, keep settings.
      */
     public function deactivate() {
         delete_option( Bulk::QUEUE_OPTION );
         delete_option( Bulk::POINTER_OPTION );
         delete_option( Bulk::RUNNING_FLAG );
-        Api_Client::clear_cache();
     }
 
     /**
