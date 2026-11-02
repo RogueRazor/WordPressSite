@@ -1,6 +1,6 @@
 <?php
 /**
- * Settings page view. Variables in scope: $settings, $account, $connected.
+ * Settings page view. Variables in scope: $settings.
  *
  * @package PicSqueeze
  */
@@ -9,7 +9,8 @@ namespace PicSqueeze;
 
 defined( 'ABSPATH' ) || exit;
 
-$account_ok = $connected && ! is_wp_error( $account );
+$webp_supported = Compressor::supports_format( 'webp' );
+$avif_supported = Compressor::supports_format( 'avif' );
 ?>
 <div class="wrap">
     <h1><?php esc_html_e( 'PicSqueeze', 'picsqueeze' ); ?></h1>
@@ -17,31 +18,25 @@ $account_ok = $connected && ! is_wp_error( $account );
     <?php settings_errors( 'picsqueeze' ); ?>
 
     <div class="card" style="max-width:800px">
-        <h2><?php esc_html_e( 'Account', 'picsqueeze' ); ?></h2>
-        <?php if ( $account_ok ) : ?>
-            <p>
-                <?php
-                printf(
-                    esc_html__( 'Connected as %1$s (%2$s plan).', 'picsqueeze' ),
-                    esc_html( $account->email ?? '' ),
-                    esc_html( $account->account_type ?? 'free' )
-                );
-                ?>
-            </p>
-            <?php if ( isset( $account->quota, $account->consumed_current_month_quota ) ) : ?>
-                <p>
-                    <?php
-                    printf(
-                        esc_html__( 'Monthly quota: %1$s used of %2$s MB.', 'picsqueeze' ),
-                        esc_html( number_format_i18n( (int) $account->consumed_current_month_quota ) ),
-                        esc_html( number_format_i18n( (int) $account->quota ) )
-                    );
-                    ?>
-                </p>
-            <?php endif; ?>
-        <?php else : ?>
-            <p><?php esc_html_e( 'Not connected. Paste your API key below to enable optimization.', 'picsqueeze' ); ?></p>
-        <?php endif; ?>
+        <h2><?php esc_html_e( 'Local compression', 'picsqueeze' ); ?></h2>
+        <p><?php esc_html_e( 'Images are compressed on your own server. No account, no API key, no quota — completely free.', 'picsqueeze' ); ?></p>
+        <p>
+            <?php
+            printf(
+                /* translators: %s: WebP or AVIF. */
+                esc_html__( 'WebP support: %s', 'picsqueeze' ),
+                $webp_supported ? '<strong style="color:green">' . esc_html__( 'available', 'picsqueeze' ) . '</strong>' : '<strong style="color:#b32d2e">' . esc_html__( 'not available on this server', 'picsqueeze' ) . '</strong>'
+            );
+            ?>
+            <br />
+            <?php
+            printf(
+                /* translators: %s: WebP or AVIF. */
+                esc_html__( 'AVIF support: %s', 'picsqueeze' ),
+                $avif_supported ? '<strong style="color:green">' . esc_html__( 'available', 'picsqueeze' ) . '</strong>' : '<strong style="color:#b32d2e">' . esc_html__( 'not available on this server', 'picsqueeze' ) . '</strong>'
+            );
+            ?>
+        </p>
     </div>
 
     <form method="post" action="">
@@ -50,20 +45,16 @@ $account_ok = $connected && ! is_wp_error( $account );
 
         <table class="form-table" role="presentation">
             <tr>
-                <th scope="row"><label for="picsqueeze_api_key"><?php esc_html_e( 'API key', 'picsqueeze' ); ?></label></th>
-                <td>
-                    <input type="text" class="regular-text" id="picsqueeze_api_key" name="picsqueeze_api_key" value="" autocomplete="off" />
-                    <?php if ( $settings['api_key'] ) : ?>
-                        <p class="description"><?php esc_html_e( 'A key is saved. Enter a new one to replace it; leave blank to keep it.', 'picsqueeze' ); ?></p>
-                    <?php else : ?>
-                        <p class="description"><?php esc_html_e( 'Leave blank to keep the current key.', 'picsqueeze' ); ?></p>
-                    <?php endif; ?>
-                </td>
-            </tr>
-            <tr>
                 <th scope="row"><?php esc_html_e( 'Compression level', 'picsqueeze' ); ?></th>
                 <td>
-                    <?php foreach ( array( 'normal' => __( 'Normal', 'picsqueeze' ), 'aggressive' => __( 'Aggressive', 'picsqueeze' ), 'ultra' => __( 'Ultra', 'picsqueeze' ) ) as $value => $label ) : ?>
+                    <?php
+                    $levels = array(
+                        'normal'     => __( 'Normal (high quality, modest savings)', 'picsqueeze' ),
+                        'aggressive' => __( 'Aggressive (good balance)', 'picsqueeze' ),
+                        'ultra'      => __( 'Ultra (smallest files, visible quality loss)', 'picsqueeze' ),
+                    );
+                    foreach ( $levels as $value => $label ) :
+                        ?>
                         <label style="display:block;margin-bottom:4px">
                             <input type="radio" name="picsqueeze_compression" value="<?php echo esc_attr( $value ); ?>" <?php checked( $settings['compression'], $value ); ?> />
                             <?php echo esc_html( $label ); ?>
@@ -80,7 +71,7 @@ $account_ok = $connected && ! is_wp_error( $account );
                     </label>
                     <label style="display:block;margin-bottom:4px">
                         <input type="checkbox" name="picsqueeze_auto_convert" value="1" <?php checked( $settings['auto_convert'] ); ?> />
-                        <?php esc_html_e( 'Create WebP/AVIF versions', 'picsqueeze' ); ?>
+                        <?php esc_html_e( 'Create next-gen versions', 'picsqueeze' ); ?>
                     </label>
                     <label style="display:block;margin-bottom:4px">
                         <select name="picsqueeze_convert_format">
