@@ -1,6 +1,6 @@
 <?php
 /**
- * Single-image optimizer: handles backup, optimize, restore, next-gen conversion.
+ * Single-image optimizer: local compression, backup, restore, next-gen conversion.
  *
  * @package PicSqueeze
  */
@@ -17,19 +17,19 @@ use WP_Error;
 class Optimizer {
 
     /**
-     * Api client.
+     * Local compressor.
      *
-     * @var Api_Client
+     * @var Compressor
      */
-    private $api;
+    private $compressor;
 
     /**
      * Constructor.
      *
-     * @param Api_Client|null $api Optional injected client.
+     * @param Compressor|null $compressor Optional injected compressor.
      */
-    public function __construct( Api_Client $api = null ) {
-        $this->api = $api ? $api : new Api_Client();
+    public function __construct( Compressor $compressor = null ) {
+        $this->compressor = $compressor ? $compressor : new Compressor();
     }
 
     /**
@@ -46,8 +46,8 @@ class Optimizer {
             return new WP_Error( 'picsqueeze_not_image', __( 'This attachment is not a supported image.', 'picsqueeze' ) );
         }
 
-        $level     = isset( $args['level'] ) ? $args['level'] : Settings::get( 'compression' );
-        $nextgen   = isset( $args['nextgen'] ) ? $args['nextgen'] : ( Settings::get( 'auto_convert' ) ? Settings::get( 'convert_format' ) : '' );
+        $level   = isset( $args['level'] ) ? $args['level'] : Settings::get( 'compression' );
+        $nextgen = isset( $args['nextgen'] ) ? $args['nextgen'] : ( Settings::get( 'auto_convert' ) ? Settings::get( 'convert_format' ) : '' );
 
         $data  = new Media_Data( $id );
         $sizes = $this->attachment_sizes( $id );
@@ -79,7 +79,7 @@ class Optimizer {
     }
 
     /**
-     * Optimize one physical file.
+     * Optimize one physical file locally.
      *
      * @param string $path Absolute file path.
      * @param string $level Compression level.
@@ -87,83 +87,56 @@ class Optimizer {
      * @return array|WP_Error
      */
     public function optimize_file( $path, $level = 'aggressive', $nextgen = '' ) {
-        $original_size = filesize( $path );
-        if ( 0 === $original_size ) {
-            return new WP_Error( 'picsqueeze_empty_file', __( 'The image file is empty.', 'picsqueeze' ) );
-        }
-
         $backup_ok = Settings::get( 'keep_originals' ) ? $this->backup( $path ) : true;
         if ( ! $backup_ok ) {
             return new WP_Error( 'picsqueeze_backup', __( 'Could not back up the original image, so it was not optimized.', 'picsqueeze' ) );
         }
 
-        $response = $this->api->optimize_image( $path, $level, '' !== $nextgen, (string) $nextgen );
+        $result = $this->compressor->compress( $path, $level );
 
-        if ( is_wp_error( $response ) ) {
-            return $response;
+        if ( is_wp_error( $result ) ) {
+            return $result;
         }
 
-        if ( empty( $response->image ) ) {
-            return new WP_Error( 'picsqueeze_bad_response', __( 'The optimization service returned an invalid response.', 'picsqueeze' ) );
-        }
-
-        $temp = $this->temp_path( $path );
-        $saved = $this->api->download_result( $response->image, $temp );
-
-        if ( is_wp_error( $saved ) ) {
-            $this->cleanup( $temp );
-            return $saved;
-        }
-
-        // Only replace if actually smaller.
-        if ( filesize( $temp ) >= $original_size ) {
-            $this->cleanup( $temp );
+        if ( 'success' !== $result['status'] ) {
+            // Nothing to do: file was already smaller than our output.
             return array(
                 'level'     => $level,
                 'status'    => 'already_optimized',
-                'original'  => $original_size,
-                'optimized' => $original_size,
+                'original'  => $result['original'],
+                'optimized' => $result['original'],
                 'nextgen'   => '',
             );
         }
 
-        $renamed = rename( $temp, $path );
-        if ( ! $renamed ) {
-            $this->cleanup( $temp );
-            return new WP_Error( 'picsqueeze_replace', __( 'The optimized image could not replace the original.', 'picsqueeze' ) );
-        }
-
-        $this->apply_permissions( $path );
-
-        if ( '' !== $nextgen && ! empty( $response->sources->{$nextgen} ) ) {
-            $this->create_nextgen_file( $path, $response->sources->{$nextgen}, $nextgen );
+        $converted = '';
+        if ( '' !== $nextgen ) {
+            $converted = $this->generate_nextgen( $path, $nextgen, $level );
         }
 
         return array(
             'level'     => $level,
             'status'    => 'success',
-            'original'  => $original_size,
-            'optimized' => filesize( $path ),
-            'nextgen'   => $nextgen,
+            'original'  => $result['original'],
+            'optimized' => $result['optimized'],
+            'nextgen'   => $converted,
         );
     }
 
     /**
-     * Save a next-gen variant alongside the optimized file.
+     * Generate a next-gen variant of a file, if possible.
      *
-     * @param string $original_path Path of the optimized file.
-     * @param string $url Download URL of the next-gen file.
+     * @param string $path Source path.
      * @param string $format webp|avif.
-     * @return bool
+     * @param string $level Compression level.
+     * @return string Format name on success ('' on failure).
      */
-    private function create_nextgen_file( $original_path, $url, $format ) {
-        $target = $this->nextgen_path( $original_path, $format );
-        $saved  = $this->api->download_result( $url, $target );
-        if ( is_wp_error( $saved ) ) {
-            return false;
+    private function generate_nextgen( $path, $format, $level ) {
+        $result = $this->compressor->convert( $path, $format, $level );
+        if ( is_wp_error( $result ) ) {
+            return '';
         }
-        $this->apply_permissions( $target );
-        return true;
+        return $format;
     }
 
     /**
@@ -209,8 +182,8 @@ class Optimizer {
         }
         $this->apply_permissions( $path );
 
-        $webp = $this->nextgen_path( $path, 'webp' );
-        $avif = $this->nextgen_path( $path, 'avif' );
+        $webp = $this->compressor->nextgen_path( $path, 'webp' );
+        $avif = $this->compressor->nextgen_path( $path, 'avif' );
         if ( file_exists( $webp ) ) { unlink( $webp ); }
         if ( file_exists( $avif ) ) { unlink( $avif ); }
 
@@ -249,38 +222,6 @@ class Optimizer {
      */
     public function backup_path( $path ) {
         return dirname( $path ) . '/picsqueeze-backup-' . basename( $path );
-    }
-
-    /**
-     * Next-gen sibling path for a file.
-     *
-     * @param string $path File path.
-     * @param string $format webp|avif.
-     * @return string
-     */
-    public function nextgen_path( $path, $format ) {
-        return preg_replace( '/\.(jpe?g|png|gif)$/i', '.' . $format, $path );
-    }
-
-    /**
-     * Temporary path for downloads.
-     *
-     * @param string $path Original path.
-     * @return string
-     */
-    private function temp_path( $path ) {
-        return $path . '.picsqueeze-tmp';
-    }
-
-    /**
-     * Delete a temp file if it exists.
-     *
-     * @param string $path Temp path.
-     */
-    private function cleanup( $path ) {
-        if ( file_exists( $path ) ) {
-            unlink( $path ); // phpcs:ignore
-        }
     }
 
     /**
