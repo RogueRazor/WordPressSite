@@ -9,8 +9,6 @@ namespace PicSqueeze;
 
 defined( 'ABSPATH' ) || exit;
 
-use WP_Error;
-
 /**
  * Class Admin
  */
@@ -117,7 +115,7 @@ class Admin {
     }
 
     /**
-     * Save the settings form (classic, non-REST settings API for simplicity).
+     * Save the settings form.
      */
     public function save_settings() {
         if ( ! isset( $_POST['picsqueeze_nonce'], $_POST['picsqueeze_save'] ) ) {
@@ -140,8 +138,6 @@ class Admin {
             $format = 'webp';
         }
 
-        $new_key = isset( $_POST['picsqueeze_api_key'] ) ? sanitize_text_field( wp_unslash( $_POST['picsqueeze_api_key'] ) ) : '';
-
         Settings::set(
             array(
                 'compression'     => $compression,
@@ -154,16 +150,6 @@ class Admin {
                 'resize_max_width' => max( 0, isset( $_POST['picsqueeze_resize_max_width'] ) ? (int) $_POST['picsqueeze_resize_max_width'] : 0 ),
             )
         );
-
-        if ( $new_key && $new_key !== (string) Settings::get( 'api_key' ) ) {
-            $check = ( new Api_Client() )->check_key( $new_key );
-            if ( is_wp_error( $check ) ) {
-                add_settings_error( 'picsqueeze', 'api_key', __( 'The API key could not be validated: ', 'picsqueeze' ) . $check->get_error_message() );
-            } else {
-                Settings::set( 'api_key', $new_key );
-                add_settings_error( 'picsqueeze', 'api_key', __( 'API key saved.', 'picsqueeze' ), 'success' );
-            }
-        }
 
         add_settings_error( 'picsqueeze', 'saved', __( 'Settings saved.', 'picsqueeze' ), 'success' );
     }
@@ -186,7 +172,6 @@ class Admin {
      */
     public function ajax_bulk_start() {
         $this->verify_ajax();
-        Api_Client::clear_cache();
         $count = $this->bulk->build_queue();
         wp_send_json_success(
             array(
@@ -280,9 +265,7 @@ class Admin {
             wp_die( esc_html__( 'You are not allowed to access this page.', 'picsqueeze' ) );
         }
 
-        $settings  = Settings::all();
-        $account   = Settings::has_api_key() ? ( new Api_Client() )->get_account() : null;
-        $connected = is_wp_error( $account ) ? false : ( is_object( $account ) && empty( $account->id ) ? false : true );
+        $settings = Settings::all();
 
         require PICSQUEEZE_PATH . 'views/settings-page.php';
     }
