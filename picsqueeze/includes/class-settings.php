@@ -30,7 +30,6 @@ class Settings {
      */
     public static function defaults() {
         return array(
-            'api_key'          => '',
             'compression'      => 'aggressive',
             'auto_optimize'    => true,
             'auto_convert'     => true,
@@ -39,7 +38,6 @@ class Settings {
             'keep_originals'   => true,
             'resize_enabled'   => false,
             'resize_max_width' => 1920,
-            'admin_bar'        => true,
         );
     }
 
@@ -94,13 +92,20 @@ class Settings {
     }
 
     /**
-     * Is a valid API key present?
+     * Map a compression level name to a JPEG-style quality number.
      *
-     * @return bool
+     * Higher number = better quality, bigger files.
+     *
+     * @param string $level normal|aggressive|ultra.
+     * @return int
      */
-    public static function has_api_key() {
-        $key = (string) self::get( 'api_key' );
-        return '' !== $key;
+    public static function quality_for( $level ) {
+        $map = array(
+            'normal'     => 82,
+            'aggressive' => 75,
+            'ultra'      => 60,
+        );
+        return isset( $map[ $level ] ) ? $map[ $level ] : 75;
     }
 
     /**
