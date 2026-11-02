@@ -49,10 +49,6 @@ class Auto_Optimizer {
             return $metadata;
         }
 
-        if ( ! Settings::has_api_key() ) {
-            return $metadata;
-        }
-
         $this->optimizer->optimize_attachment( $id );
 
         return $metadata;
